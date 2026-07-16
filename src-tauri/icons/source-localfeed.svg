@@ -1,0 +1,38 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fb923c"/>
+      <stop offset="1" stop-color="#9a3412"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- fundo -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <rect x="64" y="64" width="896" height="512" rx="200" fill="url(#sheen)"/>
+
+  <!-- cartão do leitor -->
+  <rect x="212" y="232" width="600" height="560" rx="48" fill="#ffffff" opacity="0.95"/>
+
+  <!-- símbolo RSS -->
+  <g transform="translate(292 320)">
+    <circle cx="56" cy="336" r="56" fill="#ea580c"/>
+    <path d="M 0 176 A 216 216 0 0 1 216 392" fill="none" stroke="#ea580c" stroke-width="72" stroke-linecap="round"/>
+    <path d="M 0 22 A 370 370 0 0 1 370 392" fill="none" stroke="#f97316" stroke-width="72" stroke-linecap="round"/>
+  </g>
+
+  <!-- linhas de artigo -->
+  <g fill="#fdba74">
+    <rect x="560" y="360" width="190" height="26" rx="13"/>
+    <rect x="560" y="420" width="150" height="22" rx="11" opacity="0.8"/>
+    <rect x="560" y="474" width="180" height="22" rx="11" opacity="0.6"/>
+    <rect x="560" y="528" width="130" height="22" rx="11" opacity="0.45"/>
+  </g>
+
+  <!-- easter egg da marca -->
+  <text x="512" y="900" font-family="Segoe Script, cursive" font-size="84"
+        fill="#ffffff" opacity="0.55" text-anchor="middle">Taylor</text>
+</svg>

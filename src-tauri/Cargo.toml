@@ -1,0 +1,37 @@
+[package]
+name = "localfeed"
+version = "0.1.0"
+description = "LocalFeed — leitor de RSS/Atom sem algoritmo, sem conta, sem tracker"
+authors = ["Taylor"]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Anon5T4R/LocalFeed"
+
+[lib]
+# O sufixo `_lib` evita conflito entre o nome da lib e o do binário no Windows
+# (https://github.com/rust-lang/cargo/issues/8519).
+name = "localfeed_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Feeds/artigos/estado num SQLite único em app_data (padrão LocalAgenda).
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Parser tolerante de RSS/Atom/JSON Feed.
+feed-rs = "2"
+# Extrai o artigo limpo da página (modo leitura).
+readability = "0.3"
+# A ÚNICA exceção "não-offline" da suíte: buscar os feeds que o usuário
+# assinou. Sem telemetria; rustls como no LocalTranslate.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "gzip"] }
+url = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
