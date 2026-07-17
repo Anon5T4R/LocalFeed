@@ -1,6 +1,6 @@
 [package]
 name = "localfeed"
-version = "0.5.1"
+version = "0.5.2"
 description = "LocalFeed — leitor de RSS/Atom sem algoritmo, sem conta, sem tracker"
 authors = ["Taylor"]
 edition = "2021"
