@@ -50,6 +50,10 @@ const pt = {
 
   // Feed (menu)
   "feed.remove": "Remover feed",
+  "feed.move": "Mover pra pasta",
+  "feed.moveTitle": "Mover “{title}” pra pasta",
+  "feed.folderLabel": "Pasta",
+  "feed.folderPlaceholder": "Nome da pasta (vazio = sem pasta)",
   "feed.removeConfirm": "Remover “{title}” e todos os artigos?",
   "feed.errorTitle": "Última atualização falhou: {error}",
 
@@ -122,6 +126,10 @@ const en: Record<MessageKey, string> = {
   "read.offlineNote": "Couldn't fetch the full article (offline?). Showing the feed summary.",
 
   "feed.remove": "Remove feed",
+  "feed.move": "Move to folder",
+  "feed.moveTitle": "Move “{title}” to folder",
+  "feed.folderLabel": "Folder",
+  "feed.folderPlaceholder": "Folder name (empty = no folder)",
   "feed.removeConfirm": "Remove “{title}” and all its articles?",
   "feed.errorTitle": "Last refresh failed: {error}",
 
@@ -188,6 +196,10 @@ const es: Record<MessageKey, string> = {
   "read.offlineNote": "No se pudo descargar el artículo completo (¿offline?). Mostrando el resumen del feed.",
 
   "feed.remove": "Eliminar feed",
+  "feed.move": "Mover a carpeta",
+  "feed.moveTitle": "Mover «{title}» a carpeta",
+  "feed.folderLabel": "Carpeta",
+  "feed.folderPlaceholder": "Nombre de la carpeta (vacío = sin carpeta)",
   "feed.removeConfirm": "¿Eliminar “{title}” y todos sus artículos?",
   "feed.errorTitle": "La última actualización falló: {error}",
 

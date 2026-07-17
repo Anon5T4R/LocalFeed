@@ -10,15 +10,56 @@ export default function Sidebar() {
   const feeds = useFeed((s) => s.feeds);
   const filter = useFeed((s) => s.filter);
   const refreshing = useFeed((s) => s.refreshing);
-  const { setFilter, addFeed, refreshAll, removeFeed } = useFeed.getState();
+  const { setFilter, addFeed, refreshAll, removeFeed, moveFeed } = useFeed.getState();
   const setSettingsOpen = useUi((s) => s.setSettingsOpen);
   const pushToast = useUi((s) => s.pushToast);
 
   const [url, setUrl] = useState("");
   const [adding, setAdding] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<{ id: number; title: string } | null>(null);
+  const [moveTarget, setMoveTarget] = useState<{ id: number; title: string; folder: string } | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const totalUnread = feeds.reduce((acc, f) => acc + f.unread, 0);
+
+  // Agrupa: feeds sem pasta primeiro (soltos), depois cada pasta em ordem.
+  const loose = feeds.filter((f) => !f.folder);
+  const folderNames = [...new Set(feeds.map((f) => f.folder).filter((x): x is string => !!x))].sort(
+    (a, b) => a.localeCompare(b),
+  );
+  const toggleFolder = (name: string) =>
+    setCollapsed((s) => {
+      const n = new Set(s);
+      n.has(name) ? n.delete(name) : n.add(name);
+      return n;
+    });
+
+  const feedRow = (f: (typeof feeds)[number]) => (
+    <div key={f.id} className="feed-row-wrap">
+      <button
+        className={`side-item ${filter.kind === "feed" && filter.feedId === f.id ? "active" : ""} ${f.lastError ? "has-error" : ""}`}
+        title={f.lastError ? t("feed.errorTitle", { error: f.lastError }) : f.url}
+        onClick={() => void setFilter({ kind: "feed", feedId: f.id })}
+      >
+        <span className="side-name">{f.title}</span>
+        {f.unread > 0 && <span className="badge">{f.unread}</span>}
+      </button>
+      <button
+        className="feed-move"
+        title={t("feed.move")}
+        onClick={() => setMoveTarget({ id: f.id, title: f.title, folder: f.folder ?? "" })}
+      >
+        🗂
+      </button>
+      <button
+        className="feed-remove"
+        title={t("feed.remove")}
+        onClick={() => setConfirmRemove({ id: f.id, title: f.title })}
+      >
+        ×
+      </button>
+    </div>
+  );
 
   const submit = async () => {
     const u = url.trim();
@@ -103,25 +144,22 @@ export default function Sidebar() {
 
       <div className="feed-list">
         {feeds.length === 0 && <div className="muted small side-empty">{t("side.empty")}</div>}
-        {feeds.map((f) => (
-          <div key={f.id} className="feed-row-wrap">
-            <button
-              className={`side-item ${filter.kind === "feed" && filter.feedId === f.id ? "active" : ""} ${f.lastError ? "has-error" : ""}`}
-              title={f.lastError ? t("feed.errorTitle", { error: f.lastError }) : f.url}
-              onClick={() => void setFilter({ kind: "feed", feedId: f.id })}
-            >
-              <span className="side-name">{f.title}</span>
-              {f.unread > 0 && <span className="badge">{f.unread}</span>}
-            </button>
-            <button
-              className="feed-remove"
-              title={t("feed.remove")}
-              onClick={() => setConfirmRemove({ id: f.id, title: f.title })}
-            >
-              ×
-            </button>
-          </div>
-        ))}
+        {loose.map(feedRow)}
+        {folderNames.map((name) => {
+          const group = feeds.filter((f) => f.folder === name);
+          const unread = group.reduce((a, f) => a + f.unread, 0);
+          const isCollapsed = collapsed.has(name);
+          return (
+            <div key={name} className="feed-folder">
+              <button className="folder-head" onClick={() => toggleFolder(name)}>
+                <span className="folder-caret">{isCollapsed ? "▸" : "▾"}</span>
+                <span className="side-name">{name}</span>
+                {unread > 0 && <span className="badge">{unread}</span>}
+              </button>
+              {!isCollapsed && group.map(feedRow)}
+            </div>
+          );
+        })}
       </div>
 
       <div className="side-foot">
@@ -131,6 +169,48 @@ export default function Sidebar() {
           ⚙
         </button>
       </div>
+
+      {moveTarget && (
+        <div className="modal-backdrop" onClick={() => setMoveTarget(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{t("feed.moveTitle", { title: moveTarget.title })}</h2>
+            <label className="field">
+              <span>{t("feed.folderLabel")}</span>
+              <input
+                autoFocus
+                list="folder-options"
+                value={moveTarget.folder}
+                placeholder={t("feed.folderPlaceholder")}
+                spellCheck={false}
+                onChange={(e) => setMoveTarget({ ...moveTarget, folder: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    void moveFeed(moveTarget.id, moveTarget.folder.trim() || null);
+                    setMoveTarget(null);
+                  }
+                }}
+              />
+            </label>
+            <datalist id="folder-options">
+              {folderNames.map((n) => (
+                <option key={n} value={n} />
+              ))}
+            </datalist>
+            <div className="modal-actions">
+              <button onClick={() => setMoveTarget(null)}>{t("dlg.cancel")}</button>
+              <button
+                className="primary"
+                onClick={() => {
+                  void moveFeed(moveTarget.id, moveTarget.folder.trim() || null);
+                  setMoveTarget(null);
+                }}
+              >
+                {t("dlg.ok")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmRemove && (
         <div className="modal-backdrop" onClick={() => setConfirmRemove(null)}>

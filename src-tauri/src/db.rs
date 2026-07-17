@@ -52,6 +52,14 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
+    if v < 2 {
+        // Pastas: cada feed pode pertencer a uma (NULL = sem pasta).
+        conn.execute_batch(
+            "ALTER TABLE feeds ADD COLUMN folder TEXT;
+             PRAGMA user_version = 2;",
+        )
+        .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -62,6 +70,7 @@ pub struct FeedRow {
     pub url: String,
     pub title: String,
     pub site_url: Option<String>,
+    pub folder: Option<String>,
     pub unread: i64,
     pub last_error: Option<String>,
 }
@@ -99,7 +108,7 @@ pub struct ArticleFull {
 pub fn list_feeds(conn: &Connection) -> Result<Vec<FeedRow>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT f.id, f.url, f.title, f.site_url, f.last_error,
+            "SELECT f.id, f.url, f.title, f.site_url, f.folder, f.last_error,
                     (SELECT COUNT(*) FROM articles a WHERE a.feed_id = f.id AND a.read = 0)
              FROM feeds f ORDER BY f.title COLLATE NOCASE",
         )
@@ -111,12 +120,24 @@ pub fn list_feeds(conn: &Connection) -> Result<Vec<FeedRow>, String> {
                 url: r.get(1)?,
                 title: r.get(2)?,
                 site_url: r.get(3)?,
-                last_error: r.get(4)?,
-                unread: r.get(5)?,
+                folder: r.get(4)?,
+                last_error: r.get(5)?,
+                unread: r.get(6)?,
             })
         })
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+/// Define (ou limpa, se vazio) a pasta de um feed.
+pub fn set_feed_folder(conn: &Connection, feed_id: i64, folder: Option<String>) -> Result<(), String> {
+    let f = folder.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    conn.execute(
+        "UPDATE feeds SET folder = ?2 WHERE id = ?1",
+        rusqlite::params![feed_id, f],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub struct ArticleFilter {

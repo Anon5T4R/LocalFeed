@@ -5,6 +5,7 @@ export interface FeedRow {
   url: string;
   title: string;
   siteUrl: string | null;
+  folder: string | null;
   unread: number;
   lastError: string | null;
 }

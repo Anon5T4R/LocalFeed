@@ -201,19 +201,56 @@ input {
   flex: 1;
   min-width: 0;
 }
-.feed-remove {
+.feed-remove,
+.feed-move {
   border: none;
   background: transparent;
   color: var(--muted);
   padding: 2px 6px;
   visibility: hidden;
 }
-.feed-row-wrap:hover .feed-remove {
+.feed-row-wrap:hover .feed-remove,
+.feed-row-wrap:hover .feed-move {
   visibility: visible;
 }
 .feed-remove:hover {
   color: var(--danger);
   background: transparent;
+}
+.feed-move:hover {
+  color: var(--accent);
+  background: transparent;
+}
+
+/* Pastas de feeds */
+.feed-folder {
+  margin-top: 2px;
+}
+.folder-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 8px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.folder-head:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+.folder-caret {
+  width: 12px;
+  flex-shrink: 0;
+}
+.feed-folder .feed-row-wrap .side-item {
+  padding-left: 20px;
 }
 .side-empty {
   padding: 10px 8px;

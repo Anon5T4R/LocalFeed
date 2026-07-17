@@ -16,6 +16,10 @@ export function removeFeed(feedId: number): Promise<void> {
   return invoke("remove_feed", { feedId });
 }
 
+export function setFeedFolder(feedId: number, folder: string | null): Promise<void> {
+  return invoke("set_feed_folder", { feedId, folder });
+}
+
 export function refreshAll(): Promise<RefreshSummary> {
   return invoke("refresh_all");
 }

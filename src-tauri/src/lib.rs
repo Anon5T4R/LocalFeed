@@ -50,7 +50,7 @@ fn add_feed(db: State<'_, Db>, url: String) -> Result<FeedRow, String> {
         let unread: i64 = conn
             .query_row("SELECT COUNT(*) FROM articles WHERE feed_id = ?1 AND read = 0", [id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        Ok(FeedRow { id, url: found.feed_url.clone(), title, site_url: site, unread, last_error: None })
+        Ok(FeedRow { id, url: found.feed_url.clone(), title, site_url: site, folder: None, unread, last_error: None })
     })
 }
 
@@ -61,6 +61,12 @@ fn remove_feed(db: State<'_, Db>, feed_id: i64) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         Ok(())
     })
+}
+
+/// Move um feed pra uma pasta (folder vazio/None = sem pasta).
+#[tauri::command(async)]
+fn set_feed_folder(db: State<'_, Db>, feed_id: i64, folder: Option<String>) -> Result<(), String> {
+    with_conn(&db, |conn| db::set_feed_folder(conn, feed_id, folder))
 }
 
 #[derive(Serialize, Clone)]
@@ -345,6 +351,7 @@ pub fn run() {
             list_feeds,
             add_feed,
             remove_feed,
+            set_feed_folder,
             refresh_all,
             list_articles,
             get_article,

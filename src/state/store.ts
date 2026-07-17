@@ -21,10 +21,15 @@ interface FeedState {
   openArticle: (id: number) => Promise<void>;
   addFeed: (url: string) => Promise<boolean>;
   removeFeed: (feedId: number) => Promise<void>;
+  moveFeed: (feedId: number, folder: string | null) => Promise<void>;
   refreshAll: () => Promise<void>;
   markAllRead: () => Promise<void>;
   toggleFavorite: () => Promise<void>;
   markUnread: () => Promise<void>;
+  /** Alterna lido/não-lido de um artigo da lista (navegação por teclado: m). */
+  toggleReadArticle: (id: number) => Promise<void>;
+  /** Alterna favorito de um artigo da lista (navegação por teclado: s). */
+  toggleFavoriteArticle: (id: number) => Promise<void>;
 }
 
 export const useFeed = create<FeedState>((set, get) => ({
@@ -97,6 +102,30 @@ export const useFeed = create<FeedState>((set, get) => ({
     }
     await s.loadFeeds();
     await get().reloadArticles();
+  },
+
+  moveFeed: async (feedId, folder) => {
+    await backend.setFeedFolder(feedId, folder).catch(() => {});
+    await get().loadFeeds();
+  },
+
+  toggleReadArticle: async (id) => {
+    const a = get().articles.find((x) => x.id === id);
+    if (!a) return;
+    const read = !a.read;
+    await backend.markRead(id, read).catch(() => {});
+    set({ articles: get().articles.map((x) => (x.id === id ? { ...x, read } : x)) });
+    void get().loadFeeds();
+  },
+
+  toggleFavoriteArticle: async (id) => {
+    const favorite = await backend.toggleFavorite(id).catch(() => undefined);
+    if (favorite === undefined) return;
+    const cur = get().current;
+    set({
+      articles: get().articles.map((x) => (x.id === id ? { ...x, favorite } : x)),
+      current: cur && cur.id === id ? { ...cur, favorite } : cur,
+    });
   },
 
   refreshAll: async () => {
