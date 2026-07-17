@@ -105,6 +105,61 @@ pub struct ArticleFull {
     pub favorite: bool,
 }
 
+/// Contagens pro painel "Dados e armazenamento".
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageCounts {
+    pub articles: i64,
+    /// Artigos com conteúdo readability em cache (coluna `content`).
+    pub cached: i64,
+    pub favorites: i64,
+}
+
+pub fn storage_counts(conn: &Connection) -> Result<StorageCounts, String> {
+    conn.query_row(
+        "SELECT COUNT(*),
+                COUNT(content),
+                SUM(favorite)
+         FROM articles",
+        [],
+        |r| {
+            Ok(StorageCounts {
+                articles: r.get(0)?,
+                cached: r.get(1)?,
+                favorites: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+            })
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// Limpa SÓ o conteúdo readability em cache. Os artigos e o estado de
+/// lido/favorito FICAM — o texto completo volta a ser baixado na abertura.
+/// Retorna quantos artigos tiveram o cache limpo.
+pub fn clear_readability_cache(conn: &Connection) -> Result<u64, String> {
+    let n = conn
+        .execute("UPDATE articles SET content = NULL WHERE content IS NOT NULL", [])
+        .map_err(|e| e.to_string())?;
+    conn.execute_batch("VACUUM").map_err(|e| e.to_string())?;
+    Ok(n as u64)
+}
+
+/// Apaga artigos mais velhos que `cutoff_ms` que NÃO são favoritos
+/// (favoritos nunca são apagados; feeds ficam intactos). Usa a data de
+/// publicação, caindo pra data de download quando o feed não informa.
+/// Retorna quantos artigos foram apagados.
+pub fn clear_old_articles(conn: &Connection, cutoff_ms: i64) -> Result<u64, String> {
+    let n = conn
+        .execute(
+            "DELETE FROM articles
+             WHERE favorite = 0 AND COALESCE(published_ms, fetched_ms) < ?1",
+            [cutoff_ms],
+        )
+        .map_err(|e| e.to_string())?;
+    conn.execute_batch("VACUUM").map_err(|e| e.to_string())?;
+    Ok(n as u64)
+}
+
 pub fn list_feeds(conn: &Connection) -> Result<Vec<FeedRow>, String> {
     let mut stmt = conn
         .prepare(
@@ -186,4 +241,90 @@ pub fn list_articles(conn: &Connection, f: &ArticleFilter) -> Result<Vec<Article
             .collect::<Result<Vec<_>, _>>()
     };
     rows.map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        migrate(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO feeds (id, url, title, added_ms) VALUES (1, 'https://ex.com/feed', 'Ex', 0)",
+            [],
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_article(
+        conn: &Connection,
+        guid: &str,
+        published_ms: Option<i64>,
+        fetched_ms: i64,
+        favorite: bool,
+        content: Option<&str>,
+    ) {
+        conn.execute(
+            "INSERT INTO articles (feed_id, guid, title, published_ms, fetched_ms, favorite, read, content)
+             VALUES (1, ?1, ?1, ?2, ?3, ?4, 1, ?5)",
+            rusqlite::params![guid, published_ms, fetched_ms, favorite as i64, content],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn clear_old_articles_preserva_favoritos_e_recentes() {
+        let conn = test_conn();
+        insert_article(&conn, "velho", Some(100), 100, false, None);
+        insert_article(&conn, "velho-fav", Some(100), 100, true, None);
+        insert_article(&conn, "recente", Some(9_000), 9_000, false, None);
+        // Sem published_ms: cai pro fetched_ms.
+        insert_article(&conn, "velho-sem-data", None, 100, false, None);
+
+        let n = clear_old_articles(&conn, 1_000).unwrap();
+        assert_eq!(n, 2); // "velho" e "velho-sem-data"
+
+        let restantes: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT guid FROM articles ORDER BY guid").unwrap();
+            stmt.query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(restantes, vec!["recente".to_string(), "velho-fav".to_string()]);
+
+        // O feed fica intacto.
+        let feeds: i64 = conn.query_row("SELECT COUNT(*) FROM feeds", [], |r| r.get(0)).unwrap();
+        assert_eq!(feeds, 1);
+    }
+
+    #[test]
+    fn clear_readability_cache_mantem_lido_e_favorito() {
+        let conn = test_conn();
+        insert_article(&conn, "a", Some(100), 100, true, Some("<p>cache</p>"));
+        insert_article(&conn, "b", Some(200), 200, false, None);
+
+        assert_eq!(storage_counts(&conn).unwrap().cached, 1);
+        let n = clear_readability_cache(&conn).unwrap();
+        assert_eq!(n, 1);
+
+        let (count, cached, fav, read): (i64, i64, i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(*), COUNT(content), SUM(favorite), SUM(read) FROM articles",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!((count, cached, fav, read), (2, 0, 1, 2));
+    }
+
+    #[test]
+    fn storage_counts_num_banco_vazio() {
+        let conn = test_conn();
+        let c = storage_counts(&conn).unwrap();
+        assert_eq!((c.articles, c.cached, c.favorites), (0, 0, 0));
+    }
 }

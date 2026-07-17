@@ -221,6 +221,51 @@ fn toggle_favorite(db: State<'_, Db>, article_id: i64) -> Result<bool, String> {
     })
 }
 
+// ---------- dados e armazenamento ----------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct StorageInfo {
+    /// Pasta de dados do app (onde mora o localfeed.db).
+    dir: String,
+    /// Tamanho do banco em bytes (db + WAL + SHM).
+    db_bytes: u64,
+    articles: i64,
+    cached: i64,
+    favorites: i64,
+}
+
+#[tauri::command(async)]
+fn storage_info(app: AppHandle, db: State<'_, Db>) -> Result<StorageInfo, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let counts = with_conn(&db, db::storage_counts)?;
+    let db_bytes = ["localfeed.db", "localfeed.db-wal", "localfeed.db-shm"]
+        .iter()
+        .filter_map(|name| std::fs::metadata(dir.join(name)).ok())
+        .map(|m| m.len())
+        .sum();
+    Ok(StorageInfo {
+        dir: dir.to_string_lossy().into_owned(),
+        db_bytes,
+        articles: counts.articles,
+        cached: counts.cached,
+        favorites: counts.favorites,
+    })
+}
+
+/// Limpa só o conteúdo readability em cache (artigos/lidos/favoritos ficam).
+#[tauri::command(async)]
+fn clear_readability_cache(db: State<'_, Db>) -> Result<u64, String> {
+    with_conn(&db, db::clear_readability_cache)
+}
+
+/// Apaga artigos não favoritos com mais de `days` dias (favoritos nunca).
+#[tauri::command(async)]
+fn clear_old_articles(db: State<'_, Db>, days: u32) -> Result<u64, String> {
+    let cutoff = now_ms() - i64::from(days) * 86_400_000;
+    with_conn(&db, |conn| db::clear_old_articles(conn, cutoff))
+}
+
 // ---------- OPML ----------
 
 #[derive(Serialize, Clone)]
@@ -361,6 +406,9 @@ pub fn run() {
             import_opml,
             export_opml,
             get_startup_file,
+            storage_info,
+            clear_readability_cache,
+            clear_old_articles,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

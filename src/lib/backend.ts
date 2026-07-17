@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ArticleFull, ArticleRow, FeedRow, ListFilter, OpmlImport, RefreshSummary } from "./types";
+import type { ArticleFull, ArticleRow, FeedRow, ListFilter, OpmlImport, RefreshSummary, StorageInfo } from "./types";
 
 /** Rodando dentro do Tauri? (o smoke em navegador puro não tem a ponte.) */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -58,4 +58,18 @@ export function exportOpml(path: string): Promise<void> {
 
 export function getStartupFile(): Promise<string | null> {
   return invoke("get_startup_file");
+}
+
+export function storageInfo(): Promise<StorageInfo> {
+  return invoke("storage_info");
+}
+
+/** Limpa só o conteúdo readability em cache; retorna quantos artigos limpou. */
+export function clearReadabilityCache(): Promise<number> {
+  return invoke("clear_readability_cache");
+}
+
+/** Apaga artigos não favoritos com mais de N dias; retorna quantos apagou. */
+export function clearOldArticles(days: number): Promise<number> {
+  return invoke("clear_old_articles", { days });
 }

@@ -573,6 +573,51 @@ input {
   gap: 12px;
   padding: 8px 0;
 }
+.settings-section {
+  margin: 14px 0 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+.storage-path {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.storage-path code {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* corta pela esquerda: o fim do caminho é o que importa */
+  user-select: all; /* um clique seleciona o caminho inteiro pra copiar */
+}
+.storage-path button {
+  flex-shrink: 0;
+}
+.storage-hint {
+  display: block;
+  max-width: 240px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+.storage-old {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.storage-old select {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+}
 .toasts {
   position: fixed;
   bottom: 16px;

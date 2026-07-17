@@ -52,3 +52,14 @@ export type ListFilter =
   | { kind: "unread" }
   | { kind: "favorites" }
   | { kind: "feed"; feedId: number };
+
+/** Painel "Dados e armazenamento" (espelho do StorageInfo do Rust). */
+export interface StorageInfo {
+  /** Pasta de dados do app (onde mora o localfeed.db). */
+  dir: string;
+  /** Tamanho do banco em bytes (db + WAL + SHM). */
+  dbBytes: number;
+  articles: number;
+  cached: number;
+  favorites: number;
+}
