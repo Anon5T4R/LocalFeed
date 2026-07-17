@@ -1,6 +1,14 @@
 import { create } from "zustand";
 
-export type Theme = "light" | "dark" | "system";
+export type Theme =
+  | "light"
+  | "dark"
+  | "system"
+  | "nature"
+  | "darkblue"
+  | "calmgreen"
+  | "pastelpink"
+  | "punkprincess";
 
 export interface Toast {
   id: number;
@@ -25,9 +33,20 @@ interface UiState {
 const THEME_KEY = "localfeed.theme";
 const AUTOREFRESH_KEY = "localfeed.autoRefreshMin";
 
+export const THEMES: Theme[] = [
+  "system",
+  "light",
+  "dark",
+  "nature",
+  "darkblue",
+  "calmgreen",
+  "pastelpink",
+  "punkprincess",
+];
+
 function loadTheme(): Theme {
   const v = localStorage.getItem(THEME_KEY);
-  return v === "light" || v === "dark" || v === "system" ? v : "system";
+  return v && (THEMES as string[]).includes(v) ? (v as Theme) : "system";
 }
 
 /** Aplica o tema no <html data-theme> (resolvendo "system" pela mídia). */
