@@ -11,15 +11,19 @@ export interface Toast {
 interface UiState {
   theme: Theme;
   settingsOpen: boolean;
+  /** Auto-atualização em minutos (0 = desligado). */
+  autoRefreshMin: number;
   toasts: Toast[];
 
   setTheme: (t: Theme) => void;
   setSettingsOpen: (v: boolean) => void;
+  setAutoRefreshMin: (v: number) => void;
   pushToast: (kind: Toast["kind"], text: string) => void;
   dismissToast: (id: number) => void;
 }
 
 const THEME_KEY = "localfeed.theme";
+const AUTOREFRESH_KEY = "localfeed.autoRefreshMin";
 
 function loadTheme(): Theme {
   const v = localStorage.getItem(THEME_KEY);
@@ -39,9 +43,15 @@ export function applyTheme(theme: Theme) {
 
 let nextToast = 1;
 
+function loadAutoRefresh(): number {
+  const v = Number(localStorage.getItem(AUTOREFRESH_KEY));
+  return [0, 15, 30, 60].includes(v) ? v : 0;
+}
+
 export const useUi = create<UiState>((set) => ({
   theme: loadTheme(),
   settingsOpen: false,
+  autoRefreshMin: loadAutoRefresh(),
   toasts: [],
 
   setTheme: (theme) => {
@@ -50,6 +60,10 @@ export const useUi = create<UiState>((set) => ({
     set({ theme });
   },
   setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+  setAutoRefreshMin: (autoRefreshMin) => {
+    localStorage.setItem(AUTOREFRESH_KEY, String(autoRefreshMin));
+    set({ autoRefreshMin });
+  },
   pushToast: (kind, text) =>
     set((s) => ({ toasts: [...s.toasts, { id: nextToast++, kind, text }] })),
   dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),

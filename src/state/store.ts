@@ -8,12 +8,15 @@ interface FeedState {
   feeds: FeedRow[];
   filter: ListFilter;
   articles: ArticleRow[];
+  /** Busca ao vivo (filtra a lista por título/resumo). */
+  query: string;
   listLoading: boolean;
   current: ArticleFull | null;
   refreshing: boolean;
 
   loadFeeds: () => Promise<void>;
   setFilter: (f: ListFilter) => Promise<void>;
+  setQuery: (q: string) => void;
   reloadArticles: () => Promise<void>;
   openArticle: (id: number) => Promise<void>;
   addFeed: (url: string) => Promise<boolean>;
@@ -28,6 +31,7 @@ export const useFeed = create<FeedState>((set, get) => ({
   feeds: [],
   filter: { kind: "all" },
   articles: [],
+  query: "",
   listLoading: false,
   current: null,
   refreshing: false,
@@ -36,6 +40,8 @@ export const useFeed = create<FeedState>((set, get) => ({
     const feeds = await backend.listFeeds().catch(() => [] as FeedRow[]);
     set({ feeds });
   },
+
+  setQuery: (query) => set({ query }),
 
   setFilter: async (filter) => {
     set({ filter, current: null });

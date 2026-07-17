@@ -7,9 +7,13 @@ export default function SettingsModal() {
   const setOpen = useUi((s) => s.setSettingsOpen);
   const theme = useUi((s) => s.theme);
   const setTheme = useUi((s) => s.setTheme);
+  const autoRefreshMin = useUi((s) => s.autoRefreshMin);
+  const setAutoRefreshMin = useUi((s) => s.setAutoRefreshMin);
   const locale = useLocale();
 
   if (!open) return null;
+
+  const intervals = [0, 15, 30, 60];
 
   const themes: { value: Theme; label: string }[] = [
     { value: "system", label: t("settings.themeSystem") },
@@ -43,6 +47,21 @@ export default function SettingsModal() {
             {(Object.keys(LOCALE_LABELS) as Locale[]).map((l) => (
               <button key={l} className={locale === l ? "active" : ""} onClick={() => setLocale(l)}>
                 {LOCALE_LABELS[l]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-row">
+          <span>{t("settings.autoRefresh")}</span>
+          <div className="segmented">
+            {intervals.map((m) => (
+              <button
+                key={m}
+                className={autoRefreshMin === m ? "active" : ""}
+                onClick={() => setAutoRefreshMin(m)}
+              >
+                {m === 0 ? t("settings.off") : t("settings.min", { n: m })}
               </button>
             ))}
           </div>

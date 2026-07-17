@@ -34,6 +34,8 @@ const pt = {
 
   // Lista
   "list.empty": "Nada por aqui.",
+  "list.noResults": "Nada encontrado.",
+  "list.search": "Buscar artigos…",
   "list.markAll": "Marcar tudo como lido",
   "list.loading": "Carregando…",
 
@@ -81,6 +83,9 @@ const pt = {
   "settings.themeLight": "Claro",
   "settings.themeDark": "Escuro",
   "settings.language": "Idioma",
+  "settings.autoRefresh": "Atualização automática",
+  "settings.off": "Desligada",
+  "settings.min": "{n} min",
   "settings.network":
     "Rede: o LocalFeed só acessa os feeds que você assinou (a única exceção \"não-offline\" — a leitura do que já baixou funciona sem internet). Sem conta, sem tracker, sem algoritmo.",
   "settings.about":
@@ -103,6 +108,8 @@ const en: Record<MessageKey, string> = {
   "side.empty": "No feeds yet — subscribe to a site above or import an OPML.",
 
   "list.empty": "Nothing here.",
+  "list.noResults": "Nothing found.",
+  "list.search": "Search articles…",
   "list.markAll": "Mark all as read",
   "list.loading": "Loading…",
 
@@ -144,6 +151,9 @@ const en: Record<MessageKey, string> = {
   "settings.themeLight": "Light",
   "settings.themeDark": "Dark",
   "settings.language": "Language",
+  "settings.autoRefresh": "Auto-refresh",
+  "settings.off": "Off",
+  "settings.min": "{n} min",
   "settings.network":
     "Network: LocalFeed only reaches the feeds you subscribed to (the one \"non-offline\" exception — reading what's already downloaded works without internet). No account, no tracker, no algorithm.",
   "settings.about":
@@ -164,6 +174,8 @@ const es: Record<MessageKey, string> = {
   "side.empty": "Ningún feed todavía — suscríbete a un sitio arriba o importa un OPML.",
 
   "list.empty": "Nada por aquí.",
+  "list.noResults": "No se encontró nada.",
+  "list.search": "Buscar artículos…",
   "list.markAll": "Marcar todo como leído",
   "list.loading": "Cargando…",
 
@@ -205,6 +217,9 @@ const es: Record<MessageKey, string> = {
   "settings.themeLight": "Claro",
   "settings.themeDark": "Oscuro",
   "settings.language": "Idioma",
+  "settings.autoRefresh": "Actualización automática",
+  "settings.off": "Desactivada",
+  "settings.min": "{n} min",
   "settings.network":
     "Red: LocalFeed solo accede a los feeds que suscribiste (la única excepción \"no-offline\" — leer lo ya descargado funciona sin internet). Sin cuenta, sin tracker, sin algoritmo.",
   "settings.about":

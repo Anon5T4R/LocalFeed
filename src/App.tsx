@@ -57,6 +57,14 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Auto-atualização (enquanto a janela está aberta; background+bandeja é v0.3).
+  const autoRefreshMin = useUi((s) => s.autoRefreshMin);
+  useEffect(() => {
+    if (!backend.isTauri || autoRefreshMin <= 0) return;
+    const id = setInterval(() => void useFeed.getState().refreshAll(), autoRefreshMin * 60_000);
+    return () => clearInterval(id);
+  }, [autoRefreshMin]);
+
   return (
     <div className="app">
       <Sidebar />

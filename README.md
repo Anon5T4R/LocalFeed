@@ -3,8 +3,13 @@
 Leitor de **RSS/Atom** da suíte Local — acompanhe sites e blogs **sem
 algoritmo, sem conta, sem tracker**, lendo offline o que já baixou.
 
-## Recursos (v0.1)
+## Recursos
 
+**v0.2**
+- **Busca** ao vivo nos artigos (título/resumo/feed)
+- **Atualização automática** configurável (15/30/60 min, enquanto aberto)
+
+**v0.1**
 - **Assinar pelo endereço do site** — a descoberta acha o feed sozinha
   (`<link rel=alternate>` + caminhos comuns tipo `/feed`)
 - **Modo leitura**: o artigo completo é baixado e limpo (readability) na
