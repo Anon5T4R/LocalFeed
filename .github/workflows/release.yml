@@ -181,11 +181,16 @@ jobs:
           EOF
           sed -i "s/__TAG__/$TAG/g" notas.md
 
+          # `--repo` explícito em TODAS: este job não faz checkout (não precisa
+          # do código pra publicar binário já compilado), então não existe
+          # repositório git pra o gh inferir. Sem isso ele morre com "not a git
+          # repository", que parece problema de permissão e manda investigar o
+          # token — o erro aponta pro lugar errado.
           publicar() {
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              gh release upload "$TAG" dist/* --clobber
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
             else
-              gh release create "$TAG" dist/* \
+              gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
                 --title "LocalFeed $TAG" --notes-file notas.md
             fi
           }
