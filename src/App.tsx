@@ -45,6 +45,26 @@ export default function App() {
     };
   }, []);
 
+  // Backfill do índice de busca: acontece em segundo plano no boot (quem
+  // atualiza o app com artigos antigos ganha o índice agora). A barra some
+  // sozinha no fim — sem isso o app pareceria travado indexando calado.
+  useEffect(() => {
+    if (!backend.isTauri) return;
+    const un = listen<{ building: boolean; done: number; total: number }>("search-index", (e) => {
+      const { building, done, total } = e.payload;
+      useFeed.getState().setIndexing(building && total > 0 ? { done, total } : null);
+    });
+    // O evento pode ter passado antes desta janela existir; o status conta.
+    void backend.searchStatus().then((s) => {
+      if (s.building && s.total > 0) {
+        useFeed.getState().setIndexing({ done: s.done, total: s.total });
+      }
+    }).catch(() => {});
+    return () => {
+      void un.then((f) => f());
+    };
+  }, []);
+
   // F5 = atualizar tudo.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

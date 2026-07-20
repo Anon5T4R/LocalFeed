@@ -1,15 +1,46 @@
 import { create } from "zustand";
 import * as backend from "../lib/backend";
 import { t } from "../lib/i18n";
-import type { ArticleFull, ArticleRow, FeedRow, ListFilter } from "../lib/types";
+import { isSearchable, sinceMsFor } from "../lib/search";
+import type {
+  ArticleFull,
+  ArticleRow,
+  FeedRow,
+  ListFilter,
+  SearchHit,
+  SearchPeriod,
+} from "../lib/types";
 import { useUi } from "./ui";
+
+/**
+ * Lido/favorito mudam nos dois lugares: a lista normal e os acertos da busca.
+ * (De propósito nada disso vai pro índice — é estado que muda o tempo todo,
+ * o tantivy só ordena por relevância e o SQLite filtra.)
+ */
+function patchHits(
+  hits: SearchHit[] | null,
+  id: number,
+  patch: Partial<ArticleRow>,
+): SearchHit[] | null {
+  if (!hits) return null;
+  return hits.map((h) =>
+    h.article.id === id ? { ...h, article: { ...h.article, ...patch } } : h,
+  );
+}
 
 interface FeedState {
   feeds: FeedRow[];
   filter: ListFilter;
   articles: ArticleRow[];
-  /** Busca ao vivo (filtra a lista por título/resumo). */
+  /** Texto da busca. */
   query: string;
+  /** Período da busca full-text. */
+  period: SearchPeriod;
+  /** Acertos da busca full-text; `null` = não estamos buscando. */
+  hits: SearchHit[] | null;
+  searching: boolean;
+  /** Backfill do índice em andamento (primeira execução com artigos). */
+  indexing: { done: number; total: number } | null;
   listLoading: boolean;
   current: ArticleFull | null;
   refreshing: boolean;
@@ -17,6 +48,10 @@ interface FeedState {
   loadFeeds: () => Promise<void>;
   setFilter: (f: ListFilter) => Promise<void>;
   setQuery: (q: string) => void;
+  setPeriod: (p: SearchPeriod) => Promise<void>;
+  /** Roda a busca full-text com query/filtro/período atuais. */
+  runSearch: () => Promise<void>;
+  setIndexing: (v: { done: number; total: number } | null) => void;
   reloadArticles: () => Promise<void>;
   openArticle: (id: number) => Promise<void>;
   addFeed: (url: string) => Promise<boolean>;
@@ -37,6 +72,10 @@ export const useFeed = create<FeedState>((set, get) => ({
   filter: { kind: "all" },
   articles: [],
   query: "",
+  period: "any",
+  hits: null,
+  searching: false,
+  indexing: null,
   listLoading: false,
   current: null,
   refreshing: false,
@@ -46,11 +85,44 @@ export const useFeed = create<FeedState>((set, get) => ({
     set({ feeds });
   },
 
-  setQuery: (query) => set({ query }),
+  // Quem dispara a busca é o componente (com debounce) — aqui só o texto.
+  setQuery: (query) => {
+    set({ query });
+    if (!isSearchable(query)) set({ hits: null, searching: false });
+  },
+
+  setPeriod: async (period) => {
+    set({ period });
+    await get().runSearch();
+  },
+
+  setIndexing: (indexing) => set({ indexing }),
+
+  runSearch: async () => {
+    const { query, filter, period } = get();
+    if (!backend.isTauri || !isSearchable(query)) {
+      set({ hits: null, searching: false });
+      return;
+    }
+    set({ searching: true });
+    try {
+      const hits = await backend.searchArticles(query, filter, sinceMsFor(period));
+      // A resposta pode chegar depois do usuário já ter mudado o texto;
+      // nesse caso ela é lixo e o pedido mais novo manda.
+      if (get().query !== query) return;
+      set({ hits, searching: false });
+    } catch (e) {
+      set({ hits: [], searching: false });
+      useUi.getState().pushToast("error", t("toast.searchFailed", { error: String(e) }));
+    }
+  },
 
   setFilter: async (filter) => {
     set({ filter, current: null });
     await get().reloadArticles();
+    // O filtro da barra lateral também é filtro da busca — se havia busca
+    // aberta, ela é refeita no novo escopo em vez de mostrar acertos velhos.
+    await get().runSearch();
   },
 
   reloadArticles: async () => {
@@ -68,6 +140,7 @@ export const useFeed = create<FeedState>((set, get) => ({
     const s = get();
     set({
       articles: s.articles.map((a) => (a.id === id ? { ...a, read: true } : a)),
+      hits: patchHits(s.hits, id, { read: true }),
     });
     void backend.markRead(id, true).catch(() => {});
     try {
@@ -102,6 +175,7 @@ export const useFeed = create<FeedState>((set, get) => ({
     }
     await s.loadFeeds();
     await get().reloadArticles();
+    await get().runSearch(); // o feed removido saiu do índice também
   },
 
   moveFeed: async (feedId, folder) => {
@@ -114,7 +188,10 @@ export const useFeed = create<FeedState>((set, get) => ({
     if (!a) return;
     const read = !a.read;
     await backend.markRead(id, read).catch(() => {});
-    set({ articles: get().articles.map((x) => (x.id === id ? { ...x, read } : x)) });
+    set({
+      articles: get().articles.map((x) => (x.id === id ? { ...x, read } : x)),
+      hits: patchHits(get().hits, id, { read }),
+    });
     void get().loadFeeds();
   },
 
@@ -124,6 +201,7 @@ export const useFeed = create<FeedState>((set, get) => ({
     const cur = get().current;
     set({
       articles: get().articles.map((x) => (x.id === id ? { ...x, favorite } : x)),
+      hits: patchHits(get().hits, id, { favorite }),
       current: cur && cur.id === id ? { ...cur, favorite } : cur,
     });
   },
@@ -148,6 +226,7 @@ export const useFeed = create<FeedState>((set, get) => ({
       );
       await get().loadFeeds();
       await get().reloadArticles();
+      await get().runSearch(); // artigos novos podem bater na busca aberta
     } catch (e) {
       ui.pushToast("error", String(e));
     } finally {
@@ -160,6 +239,7 @@ export const useFeed = create<FeedState>((set, get) => ({
     await backend.markAllRead(f.kind === "feed" ? f.feedId : null).catch(() => {});
     await get().loadFeeds();
     await get().reloadArticles();
+    await get().runSearch();
   },
 
   toggleFavorite: async () => {
@@ -169,6 +249,7 @@ export const useFeed = create<FeedState>((set, get) => ({
     set({
       current: { ...cur, favorite },
       articles: get().articles.map((a) => (a.id === cur.id ? { ...a, favorite } : a)),
+      hits: patchHits(get().hits, cur.id, { favorite }),
     });
   },
 
@@ -179,6 +260,7 @@ export const useFeed = create<FeedState>((set, get) => ({
     set({
       current: null,
       articles: get().articles.map((a) => (a.id === cur.id ? { ...a, read: false } : a)),
+      hits: patchHits(get().hits, cur.id, { read: false }),
     });
     void get().loadFeeds();
   },

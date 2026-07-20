@@ -1,7 +1,9 @@
 mod db;
 mod fetch;
+mod search;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use rusqlite::Connection;
@@ -10,8 +12,36 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use db::{ArticleFilter, ArticleFull, ArticleRow, FeedRow};
 use fetch::now_ms;
+use search::{FtIndex, SearchHit, SearchOpts};
 
 pub struct Db(Mutex<Option<Connection>>);
+
+/// Índice full-text + progresso do backfill inicial.
+///
+/// **REGRA DE CADEADO: `Db` sempre antes de `Ft`, nunca o contrário.**
+/// O backfill (que precisa dos dois) roda em outro thread ao mesmo tempo que
+/// o usuário busca; se a busca pegasse `Ft` e depois `Db` enquanto o backfill
+/// segura `Db` esperando `Ft`, os dois travavam de vez. Quem só precisa de um
+/// deles pega só aquele — o `index_ids` inclusive solta o `Db` antes de pegar
+/// o `Ft`, pra não segurar o banco durante a escrita no índice.
+pub struct Ft {
+    index: Mutex<Option<FtIndex>>,
+    /// Backfill rodando (primeira execução de quem já tinha artigos).
+    building: AtomicBool,
+    done: AtomicU32,
+    total: AtomicU32,
+}
+
+impl Ft {
+    fn new() -> Ft {
+        Ft {
+            index: Mutex::new(None),
+            building: AtomicBool::new(false),
+            done: AtomicU32::new(0),
+            total: AtomicU32::new(0),
+        }
+    }
+}
 
 fn with_conn<T>(
     db: &State<'_, Db>,
@@ -22,6 +52,58 @@ fn with_conn<T>(
     f(conn)
 }
 
+/// Indexa os artigos de `ids` (lê do banco, solta o cadeado, escreve no
+/// índice). Erro aqui não é fatal: o índice é derivado e o `reconcile` do
+/// próximo boot recupera o que ficou pra trás.
+fn index_ids(app: &AppHandle, ids: &[i64]) {
+    index_ids_inner(app, ids, true)
+}
+
+/// `commit = false` deixa os documentos enfileirados no writer: é o backfill,
+/// que fecha o commit a cada N lotes (commit dispara merge, e merge em
+/// excesso é o que faz o Windows brigar por arquivo mapeado).
+fn index_ids_inner(app: &AppHandle, ids: &[i64], commit: bool) {
+    if ids.is_empty() {
+        return;
+    }
+    let docs = {
+        let db = app.state::<Db>();
+        let guard = db.0.lock().unwrap();
+        match guard.as_ref() {
+            Some(conn) => search::fetch_docs(conn, ids).unwrap_or_default(),
+            None => return,
+        }
+    };
+    let ft = app.state::<Ft>();
+    let mut guard = ft.index.lock().unwrap();
+    if let Some(i) = guard.as_mut() {
+        let _ = if commit {
+            i.index_docs(&docs)
+        } else {
+            i.add_docs(&docs)
+        };
+    }
+}
+
+fn commit_index(app: &AppHandle) {
+    let ft = app.state::<Ft>();
+    let mut guard = ft.index.lock().unwrap();
+    if let Some(i) = guard.as_mut() {
+        let _ = i.commit();
+    }
+}
+
+fn unindex_ids(app: &AppHandle, ids: &[i64]) {
+    if ids.is_empty() {
+        return;
+    }
+    let ft = app.state::<Ft>();
+    let mut guard = ft.index.lock().unwrap();
+    if let Some(i) = guard.as_mut() {
+        let _ = i.delete_ids(ids);
+    }
+}
+
 // ---------- feeds ----------
 
 #[tauri::command(async)]
@@ -30,12 +112,12 @@ fn list_feeds(db: State<'_, Db>) -> Result<Vec<FeedRow>, String> {
 }
 
 #[tauri::command(async)]
-fn add_feed(db: State<'_, Db>, url: String) -> Result<FeedRow, String> {
+fn add_feed(app: AppHandle, db: State<'_, Db>, url: String) -> Result<FeedRow, String> {
     let client = fetch::client()?;
     let found = fetch::discover(&client, url.trim())?;
     let title = fetch::feed_title(&found.feed, &found.feed_url);
     let site = fetch::site_url(&found.feed);
-    with_conn(&db, |conn| {
+    let (row, novos) = with_conn(&db, |conn| {
         conn.execute(
             "INSERT INTO feeds (url, title, site_url, added_ms, last_fetch_ms)
              VALUES (?1, ?2, ?3, ?4, ?4)
@@ -46,21 +128,31 @@ fn add_feed(db: State<'_, Db>, url: String) -> Result<FeedRow, String> {
         let id: i64 = conn
             .query_row("SELECT id FROM feeds WHERE url = ?1", [&found.feed_url], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        fetch::upsert_articles(conn, id, &found.feed)?;
+        let novos = fetch::upsert_articles(conn, id, &found.feed)?;
         let unread: i64 = conn
             .query_row("SELECT COUNT(*) FROM articles WHERE feed_id = ?1 AND read = 0", [id], |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        Ok(FeedRow { id, url: found.feed_url.clone(), title, site_url: site, folder: None, unread, last_error: None })
-    })
+        Ok((
+            FeedRow { id, url: found.feed_url.clone(), title, site_url: site, folder: None, unread, last_error: None },
+            novos,
+        ))
+    })?;
+    index_ids(&app, &novos);
+    Ok(row)
 }
 
 #[tauri::command(async)]
-fn remove_feed(db: State<'_, Db>, feed_id: i64) -> Result<(), String> {
-    with_conn(&db, |conn| {
+fn remove_feed(app: AppHandle, db: State<'_, Db>, feed_id: i64) -> Result<(), String> {
+    // Colhe os ids ANTES: o ON DELETE CASCADE leva os artigos embora sem dizer
+    // quais eram, e o índice ficaria com órfãos até o próximo boot.
+    let ids = with_conn(&db, |conn| {
+        let ids = db::article_ids_of_feed(conn, feed_id)?;
         conn.execute("DELETE FROM feeds WHERE id = ?1", [feed_id])
             .map_err(|e| e.to_string())?;
-        Ok(())
-    })
+        Ok(ids)
+    })?;
+    unindex_ids(&app, &ids);
+    Ok(())
 }
 
 /// Move um feed pra uma pasta (folder vazio/None = sem pasta).
@@ -86,16 +178,18 @@ fn refresh_all(app: AppHandle, db: State<'_, Db>) -> Result<RefreshSummary, Stri
         let _ = app.emit("refresh-progress", feed.title.clone());
         match fetch::discover(&client, &feed.url) {
             Ok(found) => {
-                let added = with_conn(&db, |conn| {
-                    let n = fetch::upsert_articles(conn, feed.id, &found.feed)?;
+                let novos = with_conn(&db, |conn| {
+                    let ids = fetch::upsert_articles(conn, feed.id, &found.feed)?;
                     conn.execute(
                         "UPDATE feeds SET last_fetch_ms = ?1, last_error = NULL WHERE id = ?2",
                         rusqlite::params![now_ms(), feed.id],
                     )
                     .map_err(|e| e.to_string())?;
-                    Ok(n)
+                    Ok(ids)
                 })?;
-                summary.new_articles += added;
+                summary.new_articles += novos.len() as u32;
+                // Índice incremental: só o que chegou agora entra.
+                index_ids(&app, &novos);
             }
             Err(e) => {
                 let _ = with_conn(&db, |conn| {
@@ -130,7 +224,7 @@ fn list_articles(
 /// Artigo completo; sem conteúdo cacheado, busca a página e extrai o texto
 /// limpo (readability) — cai pro resumo do feed se falhar.
 #[tauri::command(async)]
-fn get_article(db: State<'_, Db>, article_id: i64) -> Result<ArticleFull, String> {
+fn get_article(app: AppHandle, db: State<'_, Db>, article_id: i64) -> Result<ArticleFull, String> {
     let (url, cached): (Option<String>, Option<String>) = with_conn(&db, |conn| {
         conn.query_row(
             "SELECT url, content FROM articles WHERE id = ?1",
@@ -144,7 +238,7 @@ fn get_article(db: State<'_, Db>, article_id: i64) -> Result<ArticleFull, String
         if let Some(u) = &url {
             if let Ok(client) = fetch::client() {
                 if let Ok(content) = fetch::extract_readable(&client, u) {
-                    let _ = with_conn(&db, |conn| {
+                    let ok = with_conn(&db, |conn| {
                         conn.execute(
                             "UPDATE articles SET content = ?1 WHERE id = ?2",
                             rusqlite::params![content, article_id],
@@ -152,6 +246,12 @@ fn get_article(db: State<'_, Db>, article_id: i64) -> Result<ArticleFull, String
                         .map_err(|e| e.to_string())?;
                         Ok(())
                     });
+                    // O artigo estava indexado só pelo resumo do feed; agora
+                    // que o texto completo chegou, o índice acompanha (o
+                    // index_docs substitui o documento, não duplica).
+                    if ok.is_ok() {
+                        index_ids(&app, &[article_id]);
+                    }
                 }
             }
         }
@@ -230,6 +330,8 @@ struct StorageInfo {
     dir: String,
     /// Tamanho do banco em bytes (db + WAL + SHM).
     db_bytes: u64,
+    /// Tamanho do índice de busca em bytes (derivado — dá pra apagar).
+    index_bytes: u64,
     articles: i64,
     cached: i64,
     favorites: i64,
@@ -247,6 +349,7 @@ fn storage_info(app: AppHandle, db: State<'_, Db>) -> Result<StorageInfo, String
     Ok(StorageInfo {
         dir: dir.to_string_lossy().into_owned(),
         db_bytes,
+        index_bytes: search::index_bytes(&search::index_dir(&dir)),
         articles: counts.articles,
         cached: counts.cached,
         favorites: counts.favorites,
@@ -261,9 +364,143 @@ fn clear_readability_cache(db: State<'_, Db>) -> Result<u64, String> {
 
 /// Apaga artigos não favoritos com mais de `days` dias (favoritos nunca).
 #[tauri::command(async)]
-fn clear_old_articles(db: State<'_, Db>, days: u32) -> Result<u64, String> {
+fn clear_old_articles(app: AppHandle, db: State<'_, Db>, days: u32) -> Result<u64, String> {
     let cutoff = now_ms() - i64::from(days) * 86_400_000;
-    with_conn(&db, |conn| db::clear_old_articles(conn, cutoff))
+    let ids = with_conn(&db, |conn| db::clear_old_articles(conn, cutoff))?;
+    unindex_ids(&app, &ids);
+    Ok(ids.len() as u64)
+}
+
+// ---------- busca full-text ----------
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct SearchStatus {
+    /// Backfill inicial em andamento (quem já tinha artigos ganha o índice
+    /// na primeira execução).
+    building: bool,
+    done: u32,
+    total: u32,
+    /// Documentos no índice (0 e `building=false` = índice vazio mesmo).
+    docs: u64,
+}
+
+#[tauri::command(async)]
+fn search_status(ft: State<'_, Ft>) -> Result<SearchStatus, String> {
+    let docs = match ft.index.try_lock() {
+        // O backfill segura o cadeado em lotes curtos; se estiver ocupado,
+        // não vale a pena bloquear a UI só pra contar documento.
+        Ok(g) => g.as_ref().map(|i| i.doc_count()).unwrap_or(0),
+        Err(_) => 0,
+    };
+    Ok(SearchStatus {
+        building: ft.building.load(Ordering::Relaxed),
+        done: ft.done.load(Ordering::Relaxed),
+        total: ft.total.load(Ordering::Relaxed),
+        docs,
+    })
+}
+
+/// Busca full-text. Os filtros são aplicados no SQLite (ver search.rs).
+#[tauri::command(async)]
+fn search_articles(
+    db: State<'_, Db>,
+    ft: State<'_, Ft>,
+    query: String,
+    feed_id: Option<i64>,
+    unread_only: bool,
+    favorites_only: bool,
+    since_ms: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<SearchHit>, String> {
+    if query.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    let opts = SearchOpts {
+        query,
+        feed_id,
+        unread_only,
+        favorites_only,
+        since_ms,
+        limit: limit.unwrap_or(50),
+    };
+    // Db antes de Ft (ver a regra em `struct Ft`) — inverter aqui trava o app
+    // junto com o backfill.
+    let db_guard = db.0.lock().unwrap();
+    let conn = db_guard.as_ref().ok_or("banco não inicializado")?;
+    let ft_guard = ft.index.lock().unwrap();
+    let index = ft_guard.as_ref().ok_or("índice de busca indisponível")?;
+    search::search(conn, index, &opts)
+}
+
+/// Abre o índice e o põe em dia com o banco, em segundo plano.
+///
+/// É o caminho da ATUALIZAÇÃO: quem já tem artigos chega aqui sem índice
+/// nenhum e ganha um, em lotes, com progresso — o boot não espera por isso.
+/// Também é o conserto automático de índice truncado/apagado/órfão.
+fn spawn_reconcile(app: AppHandle) {
+    std::thread::spawn(move || {
+        let Ok(dir) = app.path().app_data_dir() else {
+            return;
+        };
+        let index = match search::open_or_create(&search::index_dir(&dir)) {
+            Ok(i) => i,
+            Err(e) => {
+                let _ = app.emit("search-index", format!("erro: {e}"));
+                return;
+            }
+        };
+        {
+            let ft = app.state::<Ft>();
+            *ft.index.lock().unwrap() = Some(index);
+        }
+
+        let plan = {
+            let db = app.state::<Db>();
+            let ft = app.state::<Ft>();
+            let db_guard = db.0.lock().unwrap();
+            let Some(conn) = db_guard.as_ref() else { return };
+            let ft_guard = ft.index.lock().unwrap();
+            let Some(i) = ft_guard.as_ref() else { return };
+            search::reconcile_plan(conn, i)
+        };
+        let Ok((missing, orphans)) = plan else { return };
+
+        unindex_ids(&app, &orphans);
+        if missing.is_empty() {
+            let _ = app.emit("search-index", SearchStatus { building: false, done: 0, total: 0, docs: 0 });
+            return;
+        }
+
+        let ft = app.state::<Ft>();
+        ft.building.store(true, Ordering::Relaxed);
+        ft.total.store(missing.len() as u32, Ordering::Relaxed);
+        ft.done.store(0, Ordering::Relaxed);
+        // Lotes: cada um pega e solta os dois cadeados, então buscar e ler
+        // artigo continuam respondendo enquanto o índice é construído.
+        for (i, chunk) in missing.chunks(200).enumerate() {
+            index_ids_inner(&app, chunk, false);
+            if (i + 1) % 10 == 0 {
+                commit_index(&app);
+            }
+            let done = ft.done.fetch_add(chunk.len() as u32, Ordering::Relaxed) + chunk.len() as u32;
+            let _ = app.emit(
+                "search-index",
+                SearchStatus { building: true, done, total: missing.len() as u32, docs: 0 },
+            );
+        }
+        commit_index(&app);
+        ft.building.store(false, Ordering::Relaxed);
+        let _ = app.emit(
+            "search-index",
+            SearchStatus {
+                building: false,
+                done: missing.len() as u32,
+                total: missing.len() as u32,
+                docs: 0,
+            },
+        );
+    });
 }
 
 // ---------- OPML ----------
@@ -385,11 +622,16 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Db(Mutex::new(None)))
+        .manage(Ft::new())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
+            // ORDEM IMPORTA: o banco (com as migrações) precisa estar pronto
+            // antes de qualquer coisa ler `articles` — o índice é derivado
+            // dele. Por isso o reconcile vai depois, e em outro thread.
             let conn = db::open(&dir.join("localfeed.db")).map_err(std::io::Error::other)?;
             *app.state::<Db>().0.lock().unwrap() = Some(conn);
+            spawn_reconcile(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -409,6 +651,8 @@ pub fn run() {
             storage_info,
             clear_readability_cache,
             clear_old_articles,
+            search_articles,
+            search_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

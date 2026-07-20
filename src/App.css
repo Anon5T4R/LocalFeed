@@ -462,6 +462,39 @@ input {
   overflow: hidden;
 }
 
+/* Trecho da busca: o <b> vem do tantivy, marcando o termo que bateu. */
+.art-snippet {
+  font-size: 12px;
+  color: var(--muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.art-snippet b {
+  color: var(--text);
+  background: var(--accent-soft, rgba(255, 213, 79, 0.28));
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.period-select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 6px;
+}
+/* Backfill do índice: informativo, não bloqueia a leitura. */
+.index-bar {
+  padding: 5px 10px;
+  font-size: 11.5px;
+  color: var(--muted);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
 /* ---------- leitura ---------- */
 .reading {
   flex: 1;

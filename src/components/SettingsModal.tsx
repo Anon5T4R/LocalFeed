@@ -165,6 +165,14 @@ export default function SettingsModal() {
 
             <div className="settings-row">
               <span>
+                {t("search.indexSize")}
+                <span className="muted small storage-hint">{t("search.indexHint")}</span>
+              </span>
+              <strong>{fmtBytes(info.indexBytes)}</strong>
+            </div>
+
+            <div className="settings-row">
+              <span>
                 {t("settings.clearCache")}
                 <span className="muted small storage-hint">{t("settings.clearCacheHint")}</span>
               </span>

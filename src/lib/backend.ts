@@ -1,5 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ArticleFull, ArticleRow, FeedRow, ListFilter, OpmlImport, RefreshSummary, StorageInfo } from "./types";
+import type {
+  ArticleFull,
+  ArticleRow,
+  FeedRow,
+  ListFilter,
+  OpmlImport,
+  RefreshSummary,
+  SearchHit,
+  SearchStatus,
+  StorageInfo,
+} from "./types";
 
 /** Rodando dentro do Tauri? (o smoke em navegador puro não tem a ponte.) */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -30,6 +40,30 @@ export function listArticles(filter: ListFilter): Promise<ArticleRow[]> {
     unreadOnly: filter.kind === "unread",
     favoritesOnly: filter.kind === "favorites",
   });
+}
+
+/**
+ * Busca full-text no índice tantivy. Os filtros vêm do mesmo `ListFilter` da
+ * lista — buscar dentro de um feed é o filtro da barra lateral, não um
+ * controle novo.
+ */
+export function searchArticles(
+  query: string,
+  filter: ListFilter,
+  sinceMs: number | null,
+): Promise<SearchHit[]> {
+  return invoke("search_articles", {
+    query,
+    feedId: filter.kind === "feed" ? filter.feedId : null,
+    unreadOnly: filter.kind === "unread",
+    favoritesOnly: filter.kind === "favorites",
+    sinceMs,
+    limit: 100,
+  });
+}
+
+export function searchStatus(): Promise<SearchStatus> {
+  return invoke("search_status");
 }
 
 export function getArticle(articleId: number): Promise<ArticleFull> {

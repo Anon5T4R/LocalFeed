@@ -155,13 +155,15 @@ pub fn strip_html(html: &str) -> String {
         .to_string()
 }
 
-/// Insere os artigos novos do feed (guid único por feed). Retorna quantos.
+/// Insere os artigos novos do feed (guid único por feed). Retorna os **ids**
+/// dos inseridos — é o que alimenta o índice de busca incremental (só o que
+/// chegou entra no índice; nada de reindexar tudo a cada atualização).
 pub fn upsert_articles(
     conn: &Connection,
     feed_id: i64,
     feed: &feed_rs::model::Feed,
-) -> Result<u32, String> {
-    let mut added = 0u32;
+) -> Result<Vec<i64>, String> {
+    let mut added: Vec<i64> = Vec::new();
     for entry in &feed.entries {
         let link = entry.links.first().map(|l| l.href.clone());
         let guid = if !entry.id.is_empty() {
@@ -201,7 +203,9 @@ pub fn upsert_articles(
                 rusqlite::params![feed_id, guid, title, link, author, published, excerpt, summary, now_ms()],
             )
             .map_err(|e| e.to_string())?;
-        added += n as u32;
+        if n > 0 {
+            added.push(conn.last_insert_rowid());
+        }
     }
     Ok(added)
 }

@@ -15,7 +15,9 @@ pub fn open(path: &std::path::Path) -> Result<Connection, String> {
     Ok(conn)
 }
 
-fn migrate(conn: &Connection) -> Result<(), String> {
+/// `pub(crate)` porque o módulo `search` monta bancos de teste com o mesmo
+/// schema — a migração é a única fonte de verdade dele.
+pub(crate) fn migrate(conn: &Connection) -> Result<(), String> {
     let v: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
@@ -144,20 +146,37 @@ pub fn clear_readability_cache(conn: &Connection) -> Result<u64, String> {
     Ok(n as u64)
 }
 
+/// Ids dos artigos de um feed (colhidos ANTES do DELETE, pra poder tirá-los
+/// do índice de busca — o CASCADE do SQLite não avisa quem foi embora).
+pub fn article_ids_of_feed(conn: &Connection, feed_id: i64) -> Result<Vec<i64>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id FROM articles WHERE feed_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([feed_id], |r| r.get(0))
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
 /// Apaga artigos mais velhos que `cutoff_ms` que NÃO são favoritos
 /// (favoritos nunca são apagados; feeds ficam intactos). Usa a data de
 /// publicação, caindo pra data de download quando o feed não informa.
-/// Retorna quantos artigos foram apagados.
-pub fn clear_old_articles(conn: &Connection, cutoff_ms: i64) -> Result<u64, String> {
-    let n = conn
-        .execute(
-            "DELETE FROM articles
-             WHERE favorite = 0 AND COALESCE(published_ms, fetched_ms) < ?1",
-            [cutoff_ms],
-        )
+/// Retorna os ids apagados (o chamador os tira do índice de busca).
+pub fn clear_old_articles(conn: &Connection, cutoff_ms: i64) -> Result<Vec<i64>, String> {
+    let cond = "favorite = 0 AND COALESCE(published_ms, fetched_ms) < ?1";
+    let ids: Vec<i64> = {
+        let mut stmt = conn
+            .prepare(&format!("SELECT id FROM articles WHERE {cond}"))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([cutoff_ms], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?
+    };
+    conn.execute(&format!("DELETE FROM articles WHERE {cond}"), [cutoff_ms])
         .map_err(|e| e.to_string())?;
     conn.execute_batch("VACUUM").map_err(|e| e.to_string())?;
-    Ok(n as u64)
+    Ok(ids)
 }
 
 pub fn list_feeds(conn: &Connection) -> Result<Vec<FeedRow>, String> {
@@ -284,8 +303,8 @@ mod tests {
         // Sem published_ms: cai pro fetched_ms.
         insert_article(&conn, "velho-sem-data", None, 100, false, None);
 
-        let n = clear_old_articles(&conn, 1_000).unwrap();
-        assert_eq!(n, 2); // "velho" e "velho-sem-data"
+        let apagados = clear_old_articles(&conn, 1_000).unwrap();
+        assert_eq!(apagados.len(), 2); // "velho" e "velho-sem-data"
 
         let restantes: Vec<String> = {
             let mut stmt = conn.prepare("SELECT guid FROM articles ORDER BY guid").unwrap();
