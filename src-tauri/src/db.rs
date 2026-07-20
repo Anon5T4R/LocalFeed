@@ -62,6 +62,20 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), String> {
         )
         .map_err(|e| e.to_string())?;
     }
+    if v < 3 {
+        // "Ler depois": intenção explícita do usuário, separada de favorito.
+        // Favorito é "quero guardar"; ler-depois é "quero voltar aqui". Sai só
+        // por ação do usuário — desmarcar sozinho ao abrir seria adivinhar
+        // (abrir e fechar sem ler é comum). A limpeza automática respeita as
+        // duas (ver `clear_old_articles`): apagar um artigo que o usuário
+        // marcou pra ler é perda silenciosa do pior tipo.
+        conn.execute_batch(
+            "ALTER TABLE articles ADD COLUMN later INTEGER NOT NULL DEFAULT 0;
+             CREATE INDEX idx_articles_later ON articles(later) WHERE later = 1;
+             PRAGMA user_version = 3;",
+        )
+        .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -90,6 +104,7 @@ pub struct ArticleRow {
     pub excerpt: String,
     pub read: bool,
     pub favorite: bool,
+    pub later: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -105,6 +120,7 @@ pub struct ArticleFull {
     pub content_html: Option<String>,
     pub read: bool,
     pub favorite: bool,
+    pub later: bool,
 }
 
 /// Contagens pro painel "Dados e armazenamento".
@@ -115,13 +131,16 @@ pub struct StorageCounts {
     /// Artigos com conteúdo readability em cache (coluna `content`).
     pub cached: i64,
     pub favorites: i64,
+    /// Marcados pra ler depois — como os favoritos, sobrevivem à limpeza.
+    pub later: i64,
 }
 
 pub fn storage_counts(conn: &Connection) -> Result<StorageCounts, String> {
     conn.query_row(
         "SELECT COUNT(*),
                 COUNT(content),
-                SUM(favorite)
+                SUM(favorite),
+                SUM(later)
          FROM articles",
         [],
         |r| {
@@ -129,6 +148,7 @@ pub fn storage_counts(conn: &Connection) -> Result<StorageCounts, String> {
                 articles: r.get(0)?,
                 cached: r.get(1)?,
                 favorites: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                later: r.get::<_, Option<i64>>(3)?.unwrap_or(0),
             })
         },
     )
@@ -158,12 +178,12 @@ pub fn article_ids_of_feed(conn: &Connection, feed_id: i64) -> Result<Vec<i64>, 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
-/// Apaga artigos mais velhos que `cutoff_ms` que NÃO são favoritos
-/// (favoritos nunca são apagados; feeds ficam intactos). Usa a data de
-/// publicação, caindo pra data de download quando o feed não informa.
+/// Apaga artigos mais velhos que `cutoff_ms` que NÃO são favoritos **nem estão
+/// marcados pra ler depois** (feeds ficam intactos). Usa a data de publicação,
+/// caindo pra data de download quando o feed não informa.
 /// Retorna os ids apagados (o chamador os tira do índice de busca).
 pub fn clear_old_articles(conn: &Connection, cutoff_ms: i64) -> Result<Vec<i64>, String> {
-    let cond = "favorite = 0 AND COALESCE(published_ms, fetched_ms) < ?1";
+    let cond = "favorite = 0 AND later = 0 AND COALESCE(published_ms, fetched_ms) < ?1";
     let ids: Vec<i64> = {
         let mut stmt = conn
             .prepare(&format!("SELECT id FROM articles WHERE {cond}"))
@@ -218,12 +238,13 @@ pub struct ArticleFilter {
     pub feed_id: Option<i64>,
     pub unread_only: bool,
     pub favorites_only: bool,
+    pub later_only: bool,
 }
 
 pub fn list_articles(conn: &Connection, f: &ArticleFilter) -> Result<Vec<ArticleRow>, String> {
     let mut sql = String::from(
         "SELECT a.id, a.feed_id, f.title, a.title, a.url, a.author, a.published_ms,
-                a.excerpt, a.read, a.favorite
+                a.excerpt, a.read, a.favorite, a.later
          FROM articles a JOIN feeds f ON f.id = a.feed_id WHERE 1=1",
     );
     if f.feed_id.is_some() {
@@ -234,6 +255,9 @@ pub fn list_articles(conn: &Connection, f: &ArticleFilter) -> Result<Vec<Article
     }
     if f.favorites_only {
         sql.push_str(" AND a.favorite = 1");
+    }
+    if f.later_only {
+        sql.push_str(" AND a.later = 1");
     }
     sql.push_str(" ORDER BY a.published_ms DESC NULLS LAST, a.id DESC LIMIT 500");
 
@@ -249,6 +273,7 @@ pub fn list_articles(conn: &Connection, f: &ArticleFilter) -> Result<Vec<Article
             excerpt: r.get(7)?,
             read: r.get::<_, i64>(8)? != 0,
             favorite: r.get::<_, i64>(9)? != 0,
+            later: r.get::<_, i64>(10)? != 0,
         })
     };
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
@@ -292,6 +317,103 @@ mod tests {
             rusqlite::params![guid, published_ms, fetched_ms, favorite as i64, content],
         )
         .unwrap();
+    }
+
+    /// Banco na v2 EXATAMENTE como o app antigo o deixou — schema escrito à
+    /// mão, sem passar pela `migrate()` de hoje. É o único jeito de exercitar
+    /// o caminho da ATUALIZAÇÃO: um banco criado do zero nunca roda o ALTER.
+    fn conn_v2_com_dados() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE feeds (
+               id INTEGER PRIMARY KEY, url TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+               site_url TEXT, added_ms INTEGER NOT NULL, last_fetch_ms INTEGER,
+               last_error TEXT, folder TEXT
+             );
+             CREATE TABLE articles (
+               id INTEGER PRIMARY KEY,
+               feed_id INTEGER NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+               guid TEXT NOT NULL, title TEXT NOT NULL, url TEXT, author TEXT,
+               published_ms INTEGER, excerpt TEXT NOT NULL DEFAULT '',
+               summary TEXT, content TEXT,
+               read INTEGER NOT NULL DEFAULT 0, favorite INTEGER NOT NULL DEFAULT 0,
+               fetched_ms INTEGER NOT NULL, UNIQUE(feed_id, guid)
+             );
+             INSERT INTO feeds (id, url, title, added_ms, folder)
+               VALUES (1, 'https://ex.com/feed', 'Ex', 0, 'Notícias');
+             INSERT INTO articles (id, feed_id, guid, title, fetched_ms, read, favorite)
+               VALUES (7, 1, 'g1', 'Artigo antigo', 100, 1, 1);
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn migracao_2_para_3_preserva_dados_e_zera_o_later() {
+        let conn = conn_v2_com_dados();
+        migrate(&conn).unwrap();
+
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 3);
+
+        // A linha que já existia continua lá, com o estado dela intacto...
+        let (titulo, read, fav, later): (String, i64, i64, i64) = conn
+            .query_row(
+                "SELECT title, read, favorite, later FROM articles WHERE id = 7",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .unwrap();
+        assert_eq!(titulo, "Artigo antigo");
+        assert_eq!((read, fav), (1, 1));
+        // ...e a coluna nova nasce em 0, não NULL: `later = 0` no WHERE da
+        // limpeza descartaria a linha inteira se fosse NULL.
+        assert_eq!(later, 0);
+
+        // A pasta da v2 sobreviveu (o ALTER da v3 não recriou a tabela).
+        let pasta: Option<String> = conn
+            .query_row("SELECT folder FROM feeds WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(pasta.as_deref(), Some("Notícias"));
+    }
+
+    #[test]
+    fn migracao_e_idempotente() {
+        let conn = conn_v2_com_dados();
+        migrate(&conn).unwrap();
+        // Rodar de novo (app reaberto) não pode explodir no ALTER duplicado.
+        migrate(&conn).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM articles", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn clear_old_articles_preserva_ler_depois() {
+        let conn = test_conn();
+        insert_article(&conn, "velho", Some(100), 100, false, None);
+        insert_article(&conn, "velho-ler-depois", Some(100), 100, false, None);
+        conn.execute(
+            "UPDATE articles SET later = 1 WHERE guid = 'velho-ler-depois'",
+            [],
+        )
+        .unwrap();
+
+        let apagados = clear_old_articles(&conn, 1_000).unwrap();
+        assert_eq!(apagados.len(), 1);
+
+        let restantes: Vec<String> = {
+            let mut stmt = conn.prepare("SELECT guid FROM articles").unwrap();
+            stmt.query_map([], |r| r.get(0))
+                .unwrap()
+                .collect::<Result<_, _>>()
+                .unwrap()
+        };
+        assert_eq!(restantes, vec!["velho-ler-depois".to_string()]);
     }
 
     #[test]

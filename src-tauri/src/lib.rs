@@ -1,5 +1,6 @@
 mod db;
 mod fetch;
+mod images;
 mod search;
 
 use std::path::Path;
@@ -215,9 +216,13 @@ fn list_articles(
     feed_id: Option<i64>,
     unread_only: bool,
     favorites_only: bool,
+    later_only: bool,
 ) -> Result<Vec<ArticleRow>, String> {
     with_conn(&db, |conn| {
-        db::list_articles(conn, &ArticleFilter { feed_id, unread_only, favorites_only })
+        db::list_articles(
+            conn,
+            &ArticleFilter { feed_id, unread_only, favorites_only, later_only },
+        )
     })
 }
 
@@ -257,10 +262,14 @@ fn get_article(app: AppHandle, db: State<'_, Db>, article_id: i64) -> Result<Art
         }
     }
 
-    with_conn(&db, |conn| {
+    // Imagens: baixa o que faltar pro cache local ANTES de montar o HTML, pra
+    // que o webview receba `data:` e não precise falar com o servidor do site.
+    let img_dir = app.path().app_data_dir().ok().map(|d| images::cache_dir(&d));
+
+    let mut full = with_conn(&db, |conn| {
         conn.query_row(
             "SELECT a.id, a.feed_id, f.title, a.title, a.url, a.author, a.published_ms,
-                    COALESCE(a.content, a.summary), a.read, a.favorite
+                    COALESCE(a.content, a.summary), a.read, a.favorite, a.later
              FROM articles a JOIN feeds f ON f.id = a.feed_id WHERE a.id = ?1",
             [article_id],
             |r| {
@@ -275,11 +284,23 @@ fn get_article(app: AppHandle, db: State<'_, Db>, article_id: i64) -> Result<Art
                     content_html: r.get(7)?,
                     read: r.get::<_, i64>(8)? != 0,
                     favorite: r.get::<_, i64>(9)? != 0,
+                    later: r.get::<_, i64>(10)? != 0,
                 })
             },
         )
         .map_err(|e| e.to_string())
-    })
+    })?;
+
+    if let (Some(dir), Some(html)) = (img_dir, full.content_html.clone()) {
+        let urls = images::img_urls(&html);
+        if !urls.is_empty() {
+            if let Ok(client) = fetch::client() {
+                images::warm(&client, &dir, &urls);
+            }
+            full.content_html = Some(images::rewrite(&html, &images::data_uris(&dir, &urls)));
+        }
+    }
+    Ok(full)
 }
 
 #[tauri::command(async)]
@@ -321,6 +342,21 @@ fn toggle_favorite(db: State<'_, Db>, article_id: i64) -> Result<bool, String> {
     })
 }
 
+#[tauri::command(async)]
+fn toggle_later(db: State<'_, Db>, article_id: i64) -> Result<bool, String> {
+    with_conn(&db, |conn| {
+        conn.execute(
+            "UPDATE articles SET later = 1 - later WHERE id = ?1",
+            [article_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.query_row("SELECT later FROM articles WHERE id = ?1", [article_id], |r| {
+            r.get::<_, i64>(0).map(|v| v != 0)
+        })
+        .map_err(|e| e.to_string())
+    })
+}
+
 // ---------- dados e armazenamento ----------
 
 #[derive(Serialize, Clone)]
@@ -332,9 +368,12 @@ struct StorageInfo {
     db_bytes: u64,
     /// Tamanho do índice de busca em bytes (derivado — dá pra apagar).
     index_bytes: u64,
+    /// Bytes das imagens em cache (derivado — apagar só custa rebaixar).
+    image_bytes: u64,
     articles: i64,
     cached: i64,
     favorites: i64,
+    later: i64,
 }
 
 #[tauri::command(async)]
@@ -350,15 +389,22 @@ fn storage_info(app: AppHandle, db: State<'_, Db>) -> Result<StorageInfo, String
         dir: dir.to_string_lossy().into_owned(),
         db_bytes,
         index_bytes: search::index_bytes(&search::index_dir(&dir)),
+        image_bytes: images::dir_bytes(&images::cache_dir(&dir)),
         articles: counts.articles,
         cached: counts.cached,
         favorites: counts.favorites,
+        later: counts.later,
     })
 }
 
 /// Limpa só o conteúdo readability em cache (artigos/lidos/favoritos ficam).
+/// As imagens vão junto: são cache do mesmo conteúdo, e deixá-las órfãs no
+/// disco depois de "limpar o cache" seria mentir no número do painel.
 #[tauri::command(async)]
-fn clear_readability_cache(db: State<'_, Db>) -> Result<u64, String> {
+fn clear_readability_cache(app: AppHandle, db: State<'_, Db>) -> Result<u64, String> {
+    if let Ok(dir) = app.path().app_data_dir() {
+        images::clear(&images::cache_dir(&dir));
+    }
     with_conn(&db, db::clear_readability_cache)
 }
 
@@ -402,6 +448,11 @@ fn search_status(ft: State<'_, Ft>) -> Result<SearchStatus, String> {
 }
 
 /// Busca full-text. Os filtros são aplicados no SQLite (ver search.rs).
+///
+/// Os argumentos são os campos que o front manda no `invoke`, um a um — juntar
+/// num struct só pra agradar o clippy trocaria a assinatura por um objeto que
+/// o Tauri teria que desserializar igual, sem ganho nenhum.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command(async)]
 fn search_articles(
     db: State<'_, Db>,
@@ -410,6 +461,7 @@ fn search_articles(
     feed_id: Option<i64>,
     unread_only: bool,
     favorites_only: bool,
+    later_only: bool,
     since_ms: Option<i64>,
     limit: Option<usize>,
 ) -> Result<Vec<SearchHit>, String> {
@@ -421,6 +473,7 @@ fn search_articles(
         feed_id,
         unread_only,
         favorites_only,
+        later_only,
         since_ms,
         limit: limit.unwrap_or(50),
     };
@@ -645,6 +698,7 @@ pub fn run() {
             mark_read,
             mark_all_read,
             toggle_favorite,
+            toggle_later,
             import_opml,
             export_opml,
             get_startup_file,

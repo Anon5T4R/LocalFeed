@@ -107,6 +107,7 @@ pub struct SearchOpts {
     pub feed_id: Option<i64>,
     pub unread_only: bool,
     pub favorites_only: bool,
+    pub later_only: bool,
     /// Só artigos publicados (ou baixados) a partir deste instante.
     pub since_ms: Option<i64>,
     pub limit: usize,
@@ -288,7 +289,11 @@ pub fn index_bytes(dir: &Path) -> u64 {
 /// os que não passam no filtro são descartados na resolução.
 pub fn search(conn: &Connection, ft: &FtIndex, o: &SearchOpts) -> Result<Vec<SearchHit>, String> {
     let limit = o.limit.clamp(1, 200);
-    let filtered = o.feed_id.is_some() || o.unread_only || o.favorites_only || o.since_ms.is_some();
+    let filtered = o.feed_id.is_some()
+        || o.unread_only
+        || o.favorites_only
+        || o.later_only
+        || o.since_ms.is_some();
     let candidates = if filtered { (limit * 8).min(1000) } else { limit };
 
     let searcher = ft.reader.searcher();
@@ -311,7 +316,8 @@ pub fn search(conn: &Connection, ft: &FtIndex, o: &SearchOpts) -> Result<Vec<Sea
     // passa simplesmente não devolve linha.
     let mut sql = String::from(
         "SELECT a.id, a.feed_id, f.title, a.title, a.url, a.author, a.published_ms,
-                a.excerpt, a.read, a.favorite, COALESCE(a.content, a.summary, a.excerpt)
+                a.excerpt, a.read, a.favorite, a.later,
+                COALESCE(a.content, a.summary, a.excerpt)
          FROM articles a JOIN feeds f ON f.id = a.feed_id
          WHERE a.id = ?1",
     );
@@ -323,6 +329,9 @@ pub fn search(conn: &Connection, ft: &FtIndex, o: &SearchOpts) -> Result<Vec<Sea
     }
     if o.favorites_only {
         sql.push_str(" AND a.favorite = 1");
+    }
+    if o.later_only {
+        sql.push_str(" AND a.later = 1");
     }
     if let Some(ms) = o.since_ms {
         sql.push_str(&format!(" AND COALESCE(a.published_ms, a.fetched_ms) >= {ms}"));
@@ -352,8 +361,9 @@ pub fn search(conn: &Connection, ft: &FtIndex, o: &SearchOpts) -> Result<Vec<Sea
                     excerpt: r.get(7)?,
                     read: r.get::<_, i64>(8)? != 0,
                     favorite: r.get::<_, i64>(9)? != 0,
+                    later: r.get::<_, i64>(10)? != 0,
                 },
-                r.get::<_, Option<String>>(10)?.unwrap_or_default(),
+                r.get::<_, Option<String>>(11)?.unwrap_or_default(),
             ))
         });
         // Sem linha = filtrado, ou artigo apagado que o índice ainda não
@@ -521,6 +531,7 @@ mod tests {
             feed_id: None,
             unread_only: false,
             favorites_only: false,
+            later_only: false,
             since_ms: None,
             limit: 20,
         }

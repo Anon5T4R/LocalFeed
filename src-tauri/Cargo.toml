@@ -1,6 +1,6 @@
 [package]
 name = "localfeed"
-version = "0.6.0"
+version = "0.7.0"
 description = "LocalFeed — leitor de RSS/Atom sem algoritmo, sem conta, sem tracker"
 authors = ["Taylor"]
 edition = "2021"
@@ -31,6 +31,9 @@ readability = "0.3"
 # Índice full-text dos artigos baixados (mesmo motor e mesmo tokenizador do
 # LocalZIM — ver src/search.rs).
 tantivy = "0.22"
+# Cache de imagens dos artigos: sha256 nomeia o arquivo, base64 monta o data:.
+sha2 = "0.10"
+base64 = "0.22"
 # A ÚNICA exceção "não-offline" da suíte: buscar os feeds que o usuário
 # assinou. Sem telemetria; rustls como no LocalTranslate.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "gzip"] }

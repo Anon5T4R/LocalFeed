@@ -34,6 +34,7 @@ export default function ArticleList() {
     runSearch,
     toggleReadArticle,
     toggleFavoriteArticle,
+    toggleLaterArticle,
   } = useFeed.getState();
   const [sel, setSel] = useState(0);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -97,11 +98,14 @@ export default function ArticleList() {
       } else if (e.key === "s") {
         e.preventDefault();
         void toggleFavoriteArticle(shown[cur].article.id);
+      } else if (e.key === "l") {
+        e.preventDefault();
+        void toggleLaterArticle(shown[cur].article.id);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [shown, sel, openArticle, toggleReadArticle, toggleFavoriteArticle]);
+  }, [shown, sel, openArticle, toggleReadArticle, toggleFavoriteArticle, toggleLaterArticle]);
 
   // Rola a linha selecionada pra dentro da vista.
   useEffect(() => {
@@ -172,6 +176,7 @@ export default function ArticleList() {
           >
             <span className="art-title">
               {a.favorite && <span className="fav-star">★ </span>}
+              {a.later && <span className="later-dot">◉ </span>}
               {a.title}
             </span>
             <span className="art-meta">

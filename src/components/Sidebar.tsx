@@ -94,7 +94,7 @@ export default function Sidebar() {
   };
 
   const viewBtn = (
-    kind: "all" | "unread" | "favorites",
+    kind: "all" | "unread" | "favorites" | "later",
     label: string,
     badge?: number,
   ) => (
@@ -128,6 +128,7 @@ export default function Sidebar() {
         {viewBtn("all", t("side.all"))}
         {viewBtn("unread", t("side.unread"), totalUnread)}
         {viewBtn("favorites", t("side.favorites"))}
+        {viewBtn("later", t("side.later"))}
       </div>
 
       <div className="side-title-row">

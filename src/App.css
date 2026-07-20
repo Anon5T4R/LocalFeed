@@ -449,6 +449,11 @@ input {
 .fav-star {
   color: var(--accent);
 }
+/* Ler depois: cor própria, senão vira a mesma marca do favorito com outro
+   desenho — e a lista fica ilegível pra quem usa os dois. */
+.later-dot {
+  color: var(--muted);
+}
 .art-meta {
   font-size: 11.5px;
   color: var(--muted);

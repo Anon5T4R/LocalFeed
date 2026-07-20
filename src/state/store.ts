@@ -60,11 +60,15 @@ interface FeedState {
   refreshAll: () => Promise<void>;
   markAllRead: () => Promise<void>;
   toggleFavorite: () => Promise<void>;
+  /** Alterna "ler depois" do artigo aberto. */
+  toggleLater: () => Promise<void>;
   markUnread: () => Promise<void>;
   /** Alterna lido/não-lido de um artigo da lista (navegação por teclado: m). */
   toggleReadArticle: (id: number) => Promise<void>;
   /** Alterna favorito de um artigo da lista (navegação por teclado: s). */
   toggleFavoriteArticle: (id: number) => Promise<void>;
+  /** Alterna "ler depois" de um artigo da lista (navegação por teclado: l). */
+  toggleLaterArticle: (id: number) => Promise<void>;
 }
 
 export const useFeed = create<FeedState>((set, get) => ({
@@ -206,6 +210,20 @@ export const useFeed = create<FeedState>((set, get) => ({
     });
   },
 
+  toggleLaterArticle: async (id) => {
+    const later = await backend.toggleLater(id).catch(() => undefined);
+    if (later === undefined) return;
+    const cur = get().current;
+    // O item NÃO some da visão "ler depois" ao ser desmarcado: sumir debaixo
+    // do cursor é pior que ficar lá sem a marca até a próxima carga (mesmo
+    // comportamento dos favoritos).
+    set({
+      articles: get().articles.map((x) => (x.id === id ? { ...x, later } : x)),
+      hits: patchHits(get().hits, id, { later }),
+      current: cur && cur.id === id ? { ...cur, later } : cur,
+    });
+  },
+
   refreshAll: async () => {
     if (get().refreshing) return;
     set({ refreshing: true });
@@ -250,6 +268,17 @@ export const useFeed = create<FeedState>((set, get) => ({
       current: { ...cur, favorite },
       articles: get().articles.map((a) => (a.id === cur.id ? { ...a, favorite } : a)),
       hits: patchHits(get().hits, cur.id, { favorite }),
+    });
+  },
+
+  toggleLater: async () => {
+    const cur = get().current;
+    if (!cur) return;
+    const later = await backend.toggleLater(cur.id).catch(() => cur.later);
+    set({
+      current: { ...cur, later },
+      articles: get().articles.map((a) => (a.id === cur.id ? { ...a, later } : a)),
+      hits: patchHits(get().hits, cur.id, { later }),
     });
   },
 

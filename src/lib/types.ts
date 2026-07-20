@@ -21,6 +21,7 @@ export interface ArticleRow {
   excerpt: string;
   read: boolean;
   favorite: boolean;
+  later: boolean;
 }
 
 export interface ArticleFull {
@@ -34,6 +35,7 @@ export interface ArticleFull {
   contentHtml: string | null;
   read: boolean;
   favorite: boolean;
+  later: boolean;
 }
 
 /** Período da busca full-text. */
@@ -71,6 +73,7 @@ export type ListFilter =
   | { kind: "all" }
   | { kind: "unread" }
   | { kind: "favorites" }
+  | { kind: "later" }
   | { kind: "feed"; feedId: number };
 
 /** Painel "Dados e armazenamento" (espelho do StorageInfo do Rust). */
@@ -81,7 +84,10 @@ export interface StorageInfo {
   dbBytes: number;
   /** Tamanho do índice de busca em bytes (derivado — reconstrói sozinho). */
   indexBytes: number;
+  /** Tamanho das imagens em cache em bytes (derivado — some sem perda). */
+  imageBytes: number;
   articles: number;
   cached: number;
   favorites: number;
+  later: number;
 }

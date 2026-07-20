@@ -8,7 +8,7 @@ import { useUi } from "../state/ui";
 /** Painel de leitura: artigo limpo, links abrem no navegador. */
 export default function ReadingPane() {
   const article = useFeed((s) => s.current);
-  const { toggleFavorite, markUnread } = useFeed.getState();
+  const { toggleFavorite, toggleLater, markUnread } = useFeed.getState();
 
   const html = useMemo(
     () => (article?.contentHtml ? sanitizeHtml(article.contentHtml) : null),
@@ -38,6 +38,13 @@ export default function ReadingPane() {
           onClick={() => void toggleFavorite()}
         >
           {article.favorite ? "★" : "☆"}
+        </button>
+        <button
+          className={article.later ? "active" : ""}
+          title={article.later ? t("read.unlater") : t("read.later")}
+          onClick={() => void toggleLater()}
+        >
+          {article.later ? "◉" : "◎"}
         </button>
         <button title={t("read.markUnread")} onClick={() => void markUnread()}>
           ◌

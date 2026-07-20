@@ -39,6 +39,7 @@ export function listArticles(filter: ListFilter): Promise<ArticleRow[]> {
     feedId: filter.kind === "feed" ? filter.feedId : null,
     unreadOnly: filter.kind === "unread",
     favoritesOnly: filter.kind === "favorites",
+    laterOnly: filter.kind === "later",
   });
 }
 
@@ -57,6 +58,7 @@ export function searchArticles(
     feedId: filter.kind === "feed" ? filter.feedId : null,
     unreadOnly: filter.kind === "unread",
     favoritesOnly: filter.kind === "favorites",
+    laterOnly: filter.kind === "later",
     sinceMs,
     limit: 100,
   });
@@ -80,6 +82,10 @@ export function markAllRead(feedId: number | null): Promise<void> {
 
 export function toggleFavorite(articleId: number): Promise<boolean> {
   return invoke("toggle_favorite", { articleId });
+}
+
+export function toggleLater(articleId: number): Promise<boolean> {
+  return invoke("toggle_later", { articleId });
 }
 
 export function importOpml(path: string): Promise<OpmlImport> {

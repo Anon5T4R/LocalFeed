@@ -158,6 +158,7 @@ export default function SettingsModal() {
                     n: info.articles,
                     cached: info.cached,
                     favs: info.favorites,
+                    later: info.later,
                   })}
                 </span>
               </span>
@@ -173,10 +174,21 @@ export default function SettingsModal() {
 
             <div className="settings-row">
               <span>
+                {t("settings.imageCache")}
+                <span className="muted small storage-hint">{t("settings.imageCacheHint")}</span>
+              </span>
+              <strong>{fmtBytes(info.imageBytes)}</strong>
+            </div>
+
+            <div className="settings-row">
+              <span>
                 {t("settings.clearCache")}
                 <span className="muted small storage-hint">{t("settings.clearCacheHint")}</span>
               </span>
-              <button disabled={busy || info.cached === 0} onClick={() => setConfirm({ kind: "cache" })}>
+              <button
+                disabled={busy || (info.cached === 0 && info.imageBytes === 0)}
+                onClick={() => setConfirm({ kind: "cache" })}
+              >
                 {t("dlg.clear")}
               </button>
             </div>
