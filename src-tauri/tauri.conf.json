@@ -36,7 +36,8 @@
         "ext": ["opml"],
         "name": "Lista de feeds OPML",
         "description": "Assinaturas de feeds (OPML)",
-        "role": "Viewer"
+        "role": "Viewer",
+        "mimeType": "text/x-opml"
       }
     ],
     "icon": [
