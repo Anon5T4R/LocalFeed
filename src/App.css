@@ -18,6 +18,8 @@
   --err-border: #fca5a5;
   --shadow: 0 10px 30px rgba(20, 40, 90, 0.12);
   --radius: 12px;
+  /* <select> no Linux: sem isto o GTK pinta o texto com a cor dele. */
+  color-scheme: light;
 }
 
 /* Escuro suavizado: o quase-preto sobe ~5 pontos de L* mantendo o matiz azulado;
@@ -37,6 +39,8 @@
   --err-bg: #2a1414;
   --err-border: #7f1d1d;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  /* <select> no Linux: sem isto o GTK pinta o texto com a cor dele. */
+  color-scheme: dark;
 }
 
 /* ---- Temas nomeados (paletas fixas; sobrepõem o accent do app) ---- */
@@ -60,6 +64,8 @@
   --shadow: 0 10px 30px rgba(60, 80, 50, 0.14);
   --radius: 12px;
   --term-bg: #f8faf5;
+  /* <select> no Linux: sem isto o GTK pinta o texto com a cor dele. */
+  color-scheme: light;
 }
 :root[data-theme="darkblue"] {
   --bg: #16202e;
@@ -81,6 +87,8 @@
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
   --radius: 12px;
   --term-bg: #16202e;
+  /* <select> no Linux: sem isto o GTK pinta o texto com a cor dele. */
+  color-scheme: dark;
 }
 :root[data-theme="calmgreen"] {
   --bg: #eaf0e9;
@@ -102,6 +110,8 @@
   --shadow: 0 10px 30px rgba(40, 70, 50, 0.14);
   --radius: 12px;
   --term-bg: #f7faf6;
+  /* <select> no Linux: sem isto o GTK pinta o texto com a cor dele. */
+  color-scheme: light;
 }
 :root[data-theme="pastelpink"] {
   --bg: #f8ebf0;
@@ -123,6 +133,8 @@
   --shadow: 0 10px 30px rgba(120, 60, 90, 0.14);
   --radius: 12px;
   --term-bg: #fdf6f9;
+  /* <select> no Linux: sem isto o GTK pinta o texto com a cor dele. */
+  color-scheme: light;
 }
 :root[data-theme="punkprincess"] {
   --bg: #1c1228;
@@ -144,6 +156,8 @@
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
   --radius: 12px;
   --term-bg: #1c1228;
+  /* <select> no Linux: sem isto o GTK pinta o texto com a cor dele. */
+  color-scheme: dark;
 }
 
 * {
