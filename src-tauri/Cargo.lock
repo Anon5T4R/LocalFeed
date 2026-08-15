@@ -2368,6 +2368,7 @@ version = "0.7.7"
 dependencies = [
  "base64 0.22.1",
  "feed-rs",
+ "gtk",
  "readability",
  "reqwest 0.12.28",
  "rusqlite",
